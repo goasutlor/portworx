@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # SCRIPT: px-health-check.sh
+# AUTHOR: Sontas Jiamsripong
 # LOGIC: Strict Ready-Check + Volume & PVC Inventory + Smart Debugging
 # USE:   Run daily for ops healthcheck (e.g. cron: 0 8 * * * /path/px-health-check.sh)
 # EXIT:  0 = cluster healthy, 1 = degraded (pods not ready), 2 = discovery failed
