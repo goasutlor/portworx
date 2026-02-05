@@ -69,6 +69,48 @@ PX_SC_REGEX=".*portworx.*" ./px-snapshot.sh
 
 ---
 
+## Example output
+
+(Look and feel only; namespaces and PVC names below are generic.)
+
+```
+>> PORTWORX COMMANDER V87 - STS-safe (STORK+CSI) <<
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCOPE: ALL NAMESPACES | PX: portworx/px-cluster-abc... | FILTER(SC): .*(px|portworx).*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID  SEL  NAMESPACE        PVC NAME                 SCH  MAN  TOT  LAST SNAP      NEXT SNAP      POLICY     STATUS
+----------------------------------------------------------------------------------------------
+-- Namespace: app-preprod --
+1   [ ]           app-preprod      data0-controlcenter-0    0    0    0    ---            ---            ---        None
+2   [ ]           app-preprod      data0-kafka-0            0    0    0    ---            ---            ---        None
+3   [ ]           app-preprod      data0-kafka-1            0    0    0    ---            ---            ---        None
+4   [ ]           app-preprod      data0-kafka-2            0    0    0    ---            ---            ---        None
+5   [ ]           app-preprod      data0-kraft-0            0    0    0    ---            ---            ---        None
+6   [ ]           app-preprod      data0-kraft-1            0    0    0    ---            ---            ---        None
+7   [ ]           app-preprod      data0-kraft-2            0    0    0    ---            ---            ---        None
+8   [ ]           app-preprod      prometheus-data-controlc 0    0    0    ---            ---            ---        None
+-- Namespace: app-prod --
+9   [ ]           app-prod         data-fio-sts-401-0       0    0    0    ---            ---            ---        None
+-- Namespace: openshift-monitoring --
+10  [ ]           openshift-monito alertmanager-main-db-ale 0    0    0    ---            ---            ---        None
+11  [ ]           openshift-monito alertmanager-main-db-ale 0    0    0    ---            ---            ---        None
+12  [ ]           openshift-monito prometheus-k8s-db-promet 0    0    0    ---            ---            ---        None
+13  [ ]           openshift-monito prometheus-k8s-db-promet 0    0    0    ---            ---            ---        None
+-- Namespace: perf-test --
+14  [ ]           perf-test        data-fio-sts-2-0         0    1    1    02-04 23:57:59 ---            ---        Manual
+15  [ ]           perf-test        data-fio-sts-2-1         2    0    2    02-05 00:18:31 ---            ---        Active
+16  [ ]           perf-test        data-fio-sts-2-2         0    0    0    ---            ---            ---        None
+17  [ ]           perf-test        data-fio-sts-401-0       0    0    0    ---            ---            ---        None
+18  [ ]           perf-test        data-fio-sts-402-0       0    0    0    ---            ---            ---        None
+19  [ ]           perf-test        data-fio-sts-403-0       0    0    0    ---            ---            ---        None
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[t] Select | [h] Sched(STORK) | [u] Un-sched | [r] Restore | [s] Snap(CSI) | [c] Cleanup | [q] Quit
+
+Action:
+```
+
+---
+
 ## Restore flow
 
 1. Select one or more PVCs with **[t]**, then press **[r]**.
