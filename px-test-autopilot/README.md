@@ -22,6 +22,42 @@ Dashboard refreshes every **5 seconds** in-place (no full-screen clear). Hotkeys
 
 ---
 
+## Example dashboard
+
+```
+====================================================================================================
+ STATUS: PX-ALERT-MONITOR | Project: my-app-prod | Time: 20:25:20
+ Pod: demo-pod-0 | Mount: /data | Vol: pvc-a1b2c3d4-e5f6-7890-abcd-ef1234567890
+====================================================================================================
+[1. STORAGE LAYER]
+PVC_NAME                  MOUNT           PVC_SIZE   FS_SIZE    FS_USED    FS_USE%
+data-demo-pod-0           /data           155Gi      153G       61G        40%
+----------------------------------------------------------------------------------------------------
+[2. ARO – RULE EVENTS]
+ > RULE: volume-resize-app-fio-gt50 | STATE: Active
+    [ -      ] ActiveActionsPending => ActiveActionsInProgress
+    [ -      ] ActiveActionsInProgress => ActiveActionsTaken
+
+[3. TARGET STORAGE POOLS (DRILL DOWN)]
+NODE_IP         POOL_UUID                                DRIVE_PATH
+192.168.1.11   0c52e938-f05f-4553-b39d-adda846e7c91     /dev/mapper/3624a937093858f002fda406a00011712
+192.168.1.12   d3ae4f1d-a20e-4502-8437-c7863b3438c4     /dev/mapper/3624a937093858f002fda406a00011713
+
+[4. PX CLUSTER SUMMARY]
+NODE_IP         NODE_NAME                STATUS     STORAGE_STATUS
+192.168.1.10    node-1.cluster.local    Online     Up
+192.168.1.12    node-3.cluster.local    Online     Up              (REPLICA)
+192.168.1.11    node-2.cluster.local    Online     Up              (REPLICA)
+
+[5. LOAD GENERATOR]
+ STATUS: IDLE | Waiting for command...
+
+----------------------------------------------------------------------------------------------------
+ [t] Targets | [r] Rules | [l] Gen Load | [c] Clear | [q] Quit
+```
+
+---
+
 ## Requirements
 
 - **OpenShift/ARO** with Portworx and Autopilot enabled.
