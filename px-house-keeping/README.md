@@ -63,6 +63,50 @@ LOG_DIR=./logs ./px-house-keeping.sh
 
 ---
 
+## Example output
+
+(Look and feel only; namespaces, IPs, and volume IDs below are generic.)
+
+```
+Portworx namespace: portworx
+Scanning Portworx Volumes...
+-----------------------------------------------------------------------------------------------------------------------------------------------
+Namespace          | Volume ID / PV Name                           | PVC Name                         | PX Status    | PV Phase
+-----------------------------------------------------------------------------------------------------------------------------------------------
+> NAMESPACE: app-preprod
+  -                | pvc-124df4fd-51eb-4cf5-9fcb-9b47c1adf9e4      | prometheus-data-controlcenter-0  | (192.168.1.10) | Bound
+  -                | pvc-4b28aeaf-7515-4cf4-8c0e-ff694d0c02ca      | data0-kraft-0                    | (192.168.1.12) | Bound
+  -                | pvc-7604d127-0931-40d9-aef7-e8c6f1f3857b      | data0-controlcenter-0            | (192.168.1.10) | Bound
+  -                | pvc-8f9dc89d-3913-4ab5-8967-7a9e2cefb2ca      | data0-kafka-1                    | (192.168.1.12) | Bound
+  -                | pvc-9485a1d4-690b-43df-b609-6dd73b8bf3aa      | data0-kafka-0                    | (192.168.1.11) | Bound
+  -                | pvc-9eb80608-c7b5-452a-a064-f6069a76ff91      | data0-kafka-2                    | (192.168.1.10) | Bound
+  -                | pvc-c68e24c4-dda2-4085-b1a0-eb770a3df4b4      | data0-kraft-1                    | (192.168.1.10) | Bound
+  -                | pvc-eceba169-7464-4426-8f5c-06399af79b4a      | data0-kraft-2                    | (192.168.1.11) | Bound
+> NAMESPACE: app-prod
+  -                | pvc-7d3dc52f-0da9-4df1-9e72-608f72dd3721      | data-fio-sts-401-0               | (192.168.1.10) | Bound
+> NAMESPACE: openshift-monitoring
+  -                | pvc-35cb2c39-d79a-4af0-8363-172876731c85      | prometheus-k8s-db-prometheus-k8s-0 | (192.168.1.11) | Bound
+  -                | pvc-3a6ac494-8822-4603-939d-d3a89c4c0b30      | prometheus-k8s-db-prometheus-k8s-1 | (192.168.1.10) | Bound
+  -                | pvc-4e2b59b7-e82b-4051-a8fc-9c9d2b83b099      | alertmanager-main-db-alertmanager-main-1 | (192.168.1.10) | Bound
+  -                | pvc-f31475c4-0401-4246-8eb6-93f69e1c8b30      | alertmanager-main-db-alertmanager-main-0 | (192.168.1.11) | Bound
+> NAMESPACE: perf-test
+  -                | pvc-1d185c69-8f56-474e-9ac7-94bd15d2aeae      | data-fio-sts-403-0               | (192.168.1.12) | Bound
+  -                | pvc-504790ce-ea5f-4cf4-a5f2-00916cc84403      | data-fio-sts-2-0                 | (192.168.1.11) | Bound
+  -                | pvc-b7f3085f-5a5b-4af9-babf-c06f722abb5c      | data-fio-sts-2-1                 | (192.168.1.12) | Bound
+  -                | pvc-c7ff20e3-0983-4f6f-8813-ca529ba34de5      | data-fio-sts-2-2                 | (192.168.1.10) | Bound
+  -                | pvc-cf06566c-7058-485e-8f0f-aa200733d2b4      | data-fio-sts-402-0               | (192.168.1.11) | Bound
+  -                | pvc-e83d5ba9-7246-49a4-80f2-c1735fdd685b      | data-fio-sts-401-0               | (192.168.1.10) | Bound
+-----------------------------------------------------------------------------------------------------------------------------------------------
+AUDIT SUMMARY:
+Total Volumes: 19 | Healthy (Bound): 19 | Released (Ghost): 0 | Orphaned (No PV): 0
+
+No Orphaned Volumes found for deletion.
+Housekeeping Process Finished.
+[ops@host ~]$
+```
+
+---
+
 ## What the script does
 
 1. **Scan** – Finds a Portworx pod, lists all PX volumes, and matches them to PVs (namespace, PVC, phase).
