@@ -66,32 +66,88 @@ chmod +x px-volume-placement.sh
 ./px-volume-placement.sh
 ```
 
-### Menu
+---
 
-| Option | Description |
+## Screen Example
+
+```
+=== px-volume-placement ===
+[1] Rescan
+[2] Cluster state
+[3] Pool balance
+[4] Select PVCs
+[5] Organize selected (move replicas to Pod node)
+[6] Change StorageClass
+[7] Increase Rep (add replica on node)
+[8] Decrease Rep (remove replica from node)
+[b] Back (refresh view)
+[q] Quit
+Choice: b
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SC: px-app-rep2-dbremote | PX: portworx-cwdc
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID   SEL  NAMESPACE          PVC                        POD_NODE                 Rep   PLACEMENT REPLICAS
+--------------------------------------------------------------------------------
+-- Namespace: esb-preprod-cwdc --
+1    [ ]  esb-preprod-cwdc   data0-controlcenter-0      pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
+2    [ ]  esb-preprod-cwdc   data0-kafka-0              pesbconfwka402.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.7
+3    [ ]  esb-preprod-cwdc   data0-kafka-1              pesbconfwka403.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
+4    [x]  esb-preprod-cwdc   data0-kafka-2              pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
+5    [ ]  esb-preprod-cwdc   data0-kraft-0              pesbconfwka403.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
+6    [ ]  esb-preprod-cwdc   data0-kraft-1              pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.7
+7    [ ]  esb-preprod-cwdc   data0-kraft-2              pesbconfwka402.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.9
+-- Namespace: esb-prod-cwdc --
+8    [ ]  esb-prod-cwdc      data-fio-sts-401-0         pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
+-- Namespace: px-perf-test --
+9    [ ]  px-perf-test       data-fio-sts-2-0           pesbconfwka402.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.9
+10   [ ]  px-perf-test       data-fio-sts-2-1           pesbconfwka403.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.9
+11   [ ]  px-perf-test       data-fio-sts-2-2           pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.7
+--------------------------------------------------------------------------------
+```
+
+### Table columns
+
+| Column | Description |
 |--------|-------------|
-| **[1] Rescan** | Scan PVCs for selected SC; show placement table, cluster state, balance. |
-| **[2] Cluster state** | Show PX storage nodes and utilization. |
-| **[3] Pool balance** | Show util spread and imbalance warning. |
-| **[4] Select PVCs** | Toggle selection by ID (e.g. `1 3 5`) or `a` for all. |
-| **[5] Organize selected** | For selected REMOTE PVCs, move replicas to Pod node. |
-| **[6] Change StorageClass** | Pick a different SC for scan. |
-| **[7] Increase Rep** | Add replica on specified node (e.g. fix Rep=1 → Rep=2). |
-| **[8] Decrease Rep** | Remove replica from specified node. WARNING: Rep=1 = no HA. |
-| **[q] Quit** | Exit. |
+| **ID** | Row number for selection. |
+| **SEL** | `[x]` = selected for Organize/Increase/Decrease Rep; `[ ]` = not selected. |
+| **NAMESPACE** | Kubernetes namespace. |
+| **PVC** | PersistentVolumeClaim name. |
+| **POD_NODE** | Node where the Pod using this PVC is running. |
+| **Rep** | Replication factor (number of replicas). |
+| **PLACEMENT** | **LOCAL** (green) = at least one replica on Pod node; **REMOTE** (red) = all replicas on other nodes; **NO_POD** = no running Pod. |
+| **REPLICAS** | Node IPs where volume replicas reside. |
 
-### Flow
+---
 
-1. Run script → select StorageClass.
-2. **[1] Rescan** → review placement (LOCAL = good, REMOTE = high latency).
-3. **[4] Select** the REMOTE PVCs you want to fix (e.g. `2 5 7` or `a`).
-4. **[5] Organize** → script adds replica on Pod node, then removes from non-Pod node.
-5. **[1] Rescan** again to confirm.
+## Menu Reference
 
-### Increase/Decrease Rep (fix Rep=1 or adjust manually)
+| Option | How it works |
+|--------|--------------|
+| **[1] Rescan** | Re-scans all namespaces for PVCs using the current StorageClass. Fetches replica placement from Portworx and refreshes the table. Use after Organize or Rep changes to see updated results. |
+| **[2] Cluster state** | Shows `pxctl cluster list` output: Node ID, DATA IP, CPU, MEM, STATUS. Lets you verify which storage nodes are online. |
+| **[3] Pool balance** | Shows `pxctl status` output: pool capacity, used space per node. Manual placement may skew utilization; check after Organize or Rep changes. |
+| **[4] Select PVCs** | Toggle selection for Organize [5], Increase Rep [7], Decrease Rep [8]. Enter IDs (e.g. `1 3 5`), `a` for all, or `b` to cancel. Shows feedback: ✓ Selected / ○ Deselected. |
+| **[5] Organize selected** | For each **selected REMOTE** PVC: adds a replica on the Pod node (Rep+1), waits for sync, then removes a replica from a non-Pod node. Result: Rep unchanged, at least one replica local. Skips LOCAL and NO_POD. |
+| **[6] Change StorageClass** | Prompts to pick a different StorageClass. Rescans PVCs for the new SC. Use `0` to cancel and keep current. |
+| **[7] Increase Rep** | For each selected PVC: add a replica on a chosen node (default: Pod node if available). Use to fix Rep=1 → Rep=2. Portworx allows 1 replica per node. |
+| **[8] Decrease Rep** | For each selected PVC: remove a replica from a chosen node (enter IP). Warning: Rep=1 = no HA; high risk if node fails. |
+| **[b] Back** | Re-displays the PVC table. Use when screen scrolls or to refresh the view. |
+| **[q] Quit** | Exits the script. |
 
-- **[7] Increase Rep:** Select PVC(s), then for each: add replica on Pod node (default) or enter node IP. Use to fix volumes that accidentally dropped to Rep=1.
-- **[8] Decrease Rep:** Select PVC(s), then for each: enter node IP to remove replica from. WARNING: Rep=1 = no HA; Pod may go down if that node fails.
+### Typical flow
+
+1. Run script → select StorageClass (or set `PX_SC` env).
+2. Review the table: **LOCAL** = good, **REMOTE** = high latency (fix with Organize).
+3. **[4] Select** the REMOTE PVCs to fix (e.g. `2 5 7` or `a` for all).
+4. **[5] Organize** → script adds replica on Pod node, then removes from non-Pod node. Auto-rescans after.
+5. Use **[b]** to refresh the table, or **[1] Rescan** to re-scan manually.
+
+### Increase/Decrease Rep
+
+- **Rep=1** volumes have no HA; use **[7] Increase Rep** to add a second replica on another node.
+- **[8] Decrease Rep** removes a replica; confirm carefully—Rep=1 means the Pod will fail if that node goes down.
 
 ---
 
