@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # SCRIPT: px-volume-placement.sh
+# VERSION: 1.0.06022026
 # AUTHOR: Sontas Jiamsripong
 # PURPOSE: Scan PVCs by StorageClass, analyze replica placement vs Pod host,
 #          and organize volumes so replicas align with Pod nodes (reduce latency).

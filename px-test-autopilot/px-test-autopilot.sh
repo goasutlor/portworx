@@ -1,7 +1,7 @@
 #!/bin/bash
-
 # ==============================================================================
 # PX-ALERT-MONITOR: Portworx Volume and Autopilot Tracking Tool
+# VERSION: 1.0.06022026
 # Purpose: Monitor Portworx PVCs, Replica health, and Autopilot transitions
 # Optional env: PX_NS (default portworx-cwdc), PX_FS_WARN_PCT (default 50), PX_NO_BLINK=1 to disable blink
 # ==============================================================================

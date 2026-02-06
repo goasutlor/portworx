@@ -1,5 +1,6 @@
 #!/bin/bash
-# --- PORTWORX COMMANDER V87 - STS-safe Restore (STORK + CSI Manual) [CLUSTER SCAN + GROUP BY NS] ---
+# --- PORTWORX COMMANDER - STS-safe Restore (STORK + CSI Manual) [CLUSTER SCAN + GROUP BY NS] ---
+# VERSION: 1.0.06022026
 # AUTHOR: Sontas Jiamsripong
 set -o pipefail
 export TZ="Asia/Bangkok"

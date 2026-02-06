@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # SCRIPT: px-house-keeping.sh
+# VERSION: 1.0.06022026
 # AUTHOR: Sontas Jiamsripong
 # LOGIC:  Clean up Released PVs and Orphaned Portworx Volumes (for Retain policy)
 # USAGE:  ./px-house-keeping.sh [namespace]

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # SCRIPT: px-health-check.sh
+# VERSION: 1.0.06022026
 # AUTHOR: Sontas Jiamsripong
 # LOGIC: Strict Ready-Check + Volume & PVC Inventory + Smart Debugging
 # USE:   Run daily for ops healthcheck (e.g. cron: 0 8 * * * /path/px-health-check.sh)
