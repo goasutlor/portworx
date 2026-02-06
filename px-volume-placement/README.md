@@ -85,24 +85,24 @@ chmod +x px-volume-placement.sh
 Choice: b
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SC: px-app-rep2-dbremote | PX: portworx-cwdc
+SC: px-repl2 | PX: portworx
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ID   SEL  NAMESPACE          PVC                        POD_NODE                 Rep   PLACEMENT REPLICAS
 --------------------------------------------------------------------------------
--- Namespace: esb-preprod-cwdc --
-1    [ ]  esb-preprod-cwdc   data0-controlcenter-0      pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
-2    [ ]  esb-preprod-cwdc   data0-kafka-0              pesbconfwka402.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.7
-3    [ ]  esb-preprod-cwdc   data0-kafka-1              pesbconfwka403.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
-4    [x]  esb-preprod-cwdc   data0-kafka-2              pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
-5    [ ]  esb-preprod-cwdc   data0-kraft-0              pesbconfwka403.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
-6    [ ]  esb-preprod-cwdc   data0-kraft-1              pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.7
-7    [ ]  esb-preprod-cwdc   data0-kraft-2              pesbconfwka402.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.9
--- Namespace: esb-prod-cwdc --
-8    [ ]  esb-prod-cwdc      data-fio-sts-401-0         pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.7 10.185.52.9
--- Namespace: px-perf-test --
-9    [ ]  px-perf-test       data-fio-sts-2-0           pesbconfwka402.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.9
-10   [ ]  px-perf-test       data-fio-sts-2-1           pesbconfwka403.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.9
-11   [ ]  px-perf-test       data-fio-sts-2-2           pesbconfwka401.cwdc.esb- 2     LOCAL    10.185.52.8 10.185.52.7
+-- Namespace: app-ns --
+1    [ ]  app-ns             data-controlcenter-0       node-1.example.com       2     LOCAL    10.0.0.1 10.0.0.2
+2    [ ]  app-ns             data-kafka-0               node-2.example.com       2     LOCAL    10.0.0.2 10.0.0.1
+3    [ ]  app-ns             data-kafka-1               node-3.example.com       2     LOCAL    10.0.0.1 10.0.0.3
+4    [x]  app-ns             data-kafka-2               node-1.example.com       2     LOCAL    10.0.0.1 10.0.0.2
+5    [ ]  app-ns             data-storage-0             node-3.example.com       2     LOCAL    10.0.0.1 10.0.0.3
+6    [ ]  app-ns             data-storage-1             node-1.example.com       2     LOCAL    10.0.0.2 10.0.0.1
+7    [ ]  app-ns             data-storage-2             node-2.example.com       2     LOCAL    10.0.0.2 10.0.0.3
+-- Namespace: prod-ns --
+8    [ ]  prod-ns            data-sts-0                 node-1.example.com       2     LOCAL    10.0.0.1 10.0.0.2
+-- Namespace: test-ns --
+9    [ ]  test-ns            data-fio-0                 node-2.example.com       2     LOCAL    10.0.0.2 10.0.0.3
+10   [ ]  test-ns            data-fio-1                 node-3.example.com       2     LOCAL    10.0.0.2 10.0.0.3
+11   [ ]  test-ns            data-fio-2                 node-1.example.com       2     LOCAL    10.0.0.2 10.0.0.1
 --------------------------------------------------------------------------------
 ```
 
@@ -155,7 +155,7 @@ ID   SEL  NAMESPACE          PVC                        POD_NODE                
 
 | Variable | Description |
 |----------|-------------|
-| `PX_SC` | Pre-select StorageClass (skip menu). Example: `PX_SC=px-app-rep2-dbremote ./px-volume-placement.sh` |
+| `PX_SC` | Pre-select StorageClass (skip menu). Example: `PX_SC=px-repl2 ./px-volume-placement.sh` |
 | `LOG_DIR` | Log directory (default: `./logs`). |
 
 ---
