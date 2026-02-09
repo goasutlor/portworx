@@ -120,7 +120,7 @@ get_pod_node_for_pvc() {
 get_replica_ips() {
     local vol_id="$1"
     local raw
-    raw=$(oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume inspect "$vol_id" 2>/dev/null)
+    raw=$(timeout 10 oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume inspect "$vol_id" 2>/dev/null)
     echo "$raw" | sed -n '/Replica sets on nodes:/,/Replication Status/p' | grep "Node " | awk -F': ' '{print $2}' | xargs
 }
 
@@ -128,7 +128,7 @@ get_replica_ips() {
 get_volume_rep() {
     local vol_id="$1"
     local ha
-    ha=$(oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume inspect "$vol_id" 2>/dev/null | grep -E "^HA " | grep -oE "[0-9]+" | head -n 1)
+    ha=$(timeout 10 oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume inspect "$vol_id" 2>/dev/null | grep -E "^HA " | grep -oE "[0-9]+" | head -n 1)
     [[ -n "$ha" ]] && echo "$ha" && return
     local reps
     reps=$(get_replica_ips "$vol_id")
@@ -146,18 +146,29 @@ run_scan() {
         echo "$tmp"
         return
     fi
+    local total=$(echo "$pvcs" | wc -l)
+    log "${C}Scanning $total PVC(s)...${NC}"
     local idx=0
     while IFS='|' read -r ns pvc vol_id; do
         [[ -z "$vol_id" || "$vol_id" == "null" ]] && continue
         ((idx++))
+        echo -ne "\r${C}[$idx/$total] $ns/$pvc...${NC}"
         local pod_node
         pod_node=$(get_pod_node_for_pvc "$ns" "$pvc")
         local pod_ip=""
         [[ -n "$pod_node" ]] && pod_ip=$(node_to_ip "$pod_node")
+        # Try to inspect volume (skip non-PX volumes like NFS)
+        local vol_inspect
+        vol_inspect=$(timeout 10 oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume inspect "$vol_id" 2>&1)
+        if echo "$vol_inspect" | grep -qE "(not found|does not exist|Invalid volume)" || [[ -z "$vol_inspect" ]]; then
+            # Not a Portworx volume (e.g. NFS CSI) - skip detailed scan
+            echo "$idx|$ns|$pvc|$vol_id|$pod_node|$pod_ip||0|NO_PX" >> "$tmp"
+            continue
+        fi
         local replica_ips
-        replica_ips=$(get_replica_ips "$vol_id")
+        replica_ips=$(echo "$vol_inspect" | sed -n '/Replica sets on nodes:/,/Replication Status/p' | grep "Node " | awk -F': ' '{print $2}' | xargs)
         local rep
-        rep=$(get_volume_rep "$vol_id")
+        rep=$(echo "$vol_inspect" | grep -E "^HA " | grep -oE "[0-9]+" | head -n 1)
         [[ -z "$rep" ]] && rep=$(echo $replica_ips | wc -w)
         rep="${rep:-1}"
         local status="REMOTE"
@@ -170,6 +181,7 @@ run_scan() {
         fi
         echo "$idx|$ns|$pvc|$vol_id|$pod_node|$pod_ip|$replica_ips|$rep|$status" >> "$tmp"
     done <<< "$pvcs"
+    echo ""  # New line after progress
     echo "$tmp"
 }
 
@@ -196,6 +208,7 @@ print_scan_table() {
         [[ "$status" == "LOCAL" ]] && col="$G"
         [[ "$status" == "REMOTE" ]] && col="$R"
         [[ "$status" == "NO_POD" ]] && col="$Y"
+        [[ "$status" == "NO_PX" ]] && col="$M"
         local pvc_short="${pvc:0:24}"
         local pod_display="${pod_node:0:24}"
         local reps_short="${replica_ips:0:30}"
