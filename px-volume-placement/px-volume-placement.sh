@@ -34,8 +34,11 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/px-volume-placement_$(date '+%Y%m%d').log"
 log() { echo -e "$@"; echo -e "$@" >> "$LOG_FILE" 2>/dev/null || true; }
 
-# Temp cleanup
-cleanup() { rm -f /tmp/px_vp_$$.* 2>/dev/null; }
+# Temp cleanup (only on exit, not during run)
+cleanup() {
+    [[ -n "$SCAN_FILE" && -f "$SCAN_FILE" ]] && rm -f "$SCAN_FILE" 2>/dev/null || true
+    rm -f /tmp/px_vp_$$.* 2>/dev/null || true
+}
 trap cleanup EXIT
 
 # --- Discover Portworx ---
@@ -95,10 +98,10 @@ ip_to_node_id() {
 
 # --- Get PVCs for selected SC ---
 get_pvcs_for_sc() {
-    oc get pvc -A -o json 2>/dev/null | jq -r --arg sc "$PX_SC" '
+    timeout 30 oc get pvc -A -o json 2>/dev/null | timeout 10 jq -r --arg sc "$PX_SC" '
         .items[] | select(.spec.storageClassName == $sc or (.spec.storageClassName == null and $sc == ""))
         | "\(.metadata.namespace)|\(.metadata.name)|\(.spec.volumeName)"
-    ' 2>/dev/null | grep -v '^$'
+    ' 2>/dev/null | grep -v '^$' || true
 }
 
 # --- For a PVC (ns, name), find Pod(s) using it and their node ---
@@ -139,6 +142,7 @@ get_volume_rep() {
 run_scan() {
     local tmp="/tmp/px_vp_$$_scan"
     : > "$tmp"
+    log "${C}Fetching PVCs for StorageClass: $PX_SC...${NC}"
     local pvcs
     pvcs=$(get_pvcs_for_sc)
     if [[ -z "$pvcs" ]]; then
@@ -147,12 +151,12 @@ run_scan() {
         return
     fi
     local total=$(echo "$pvcs" | wc -l)
-    log "${C}Scanning $total PVC(s)...${NC}"
+    echo -e "${C}Found $total PVC(s). Scanning placement...${NC}" >&2
     local idx=0
     while IFS='|' read -r ns pvc vol_id; do
         [[ -z "$vol_id" || "$vol_id" == "null" ]] && continue
         ((idx++))
-        echo -ne "\r${C}[$idx/$total] $ns/$pvc...${NC}"
+        echo -ne "\r${C}[$idx/$total] $ns/$pvc...${NC}" >&2
         local pod_node
         pod_node=$(get_pod_node_for_pvc "$ns" "$pvc")
         local pod_ip=""
@@ -181,7 +185,11 @@ run_scan() {
         fi
         echo "$idx|$ns|$pvc|$vol_id|$pod_node|$pod_ip|$replica_ips|$rep|$status" >> "$tmp"
     done <<< "$pvcs"
-    echo ""  # New line after progress
+    echo "" >&2  # New line after progress
+    if [[ ! -f "$tmp" ]]; then
+        log "${R}Error: Temp file $tmp was deleted!${NC}"
+        return 1
+    fi
     echo "$tmp"
 }
 
@@ -252,6 +260,10 @@ do_rescan_and_show() {
     log "${G}Waiting 10s for replication to settle, then rescanning...${NC}"
     sleep 10
     SCAN_FILE=$(run_scan)
+    if [[ -z "$SCAN_FILE" || ! -f "$SCAN_FILE" ]]; then
+        log "${R}Error: Rescan failed.${NC}"
+        return 1
+    fi
     print_scan_table "$SCAN_FILE"
     log "${G}✓ Updated results displayed above.${NC}"
 }
@@ -463,6 +475,10 @@ SCAN_FILE=""
 
 # Initial rescan: show only PVC list
 SCAN_FILE=$(run_scan)
+if [[ -z "$SCAN_FILE" || ! -f "$SCAN_FILE" ]]; then
+    log "${R}Error: Scan failed or temp file missing.${NC}"
+    exit 1
+fi
 print_scan_table "$SCAN_FILE"
 
 while true; do
@@ -482,7 +498,11 @@ while true; do
     case "$choice" in
         1)
             SCAN_FILE=$(run_scan)
-            print_scan_table "$SCAN_FILE"
+            if [[ -z "$SCAN_FILE" || ! -f "$SCAN_FILE" ]]; then
+                log "${R}Error: Rescan failed.${NC}"
+            else
+                print_scan_table "$SCAN_FILE"
+            fi
             ;;
         2) show_cluster_state ;;
         3) show_balance_metric ;;
@@ -520,7 +540,12 @@ while true; do
         6)
             if select_storage_class; then
                 SCAN_FILE=$(run_scan)
-                print_scan_table "$SCAN_FILE"
+                if [[ -z "$SCAN_FILE" || ! -f "$SCAN_FILE" ]]; then
+                    log "${R}Error: Rescan failed.${NC}"
+                    SCAN_FILE=""
+                else
+                    print_scan_table "$SCAN_FILE"
+                fi
             else
                 SCAN_FILE=""
             fi
