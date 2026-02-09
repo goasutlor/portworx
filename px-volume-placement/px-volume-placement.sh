@@ -143,14 +143,14 @@ run_scan() {
     local tmp="/tmp/px_vp_$$_scan"
     : > "$tmp"
     if [[ ! -f "$tmp" ]]; then
-        log "${R}Error: Cannot create temp file $tmp${NC}" >&2
+        echo -e "${R}Error: Cannot create temp file $tmp${NC}" >&2
         return 1
     fi
-    log "${C}Fetching PVCs for StorageClass: $PX_SC...${NC}"
+    echo -e "${C}Fetching PVCs for StorageClass: $PX_SC...${NC}" >&2
     local pvcs
     pvcs=$(get_pvcs_for_sc)
     if [[ -z "$pvcs" ]]; then
-        log "${Y}No PVCs found for StorageClass: $PX_SC${NC}"
+        echo -e "${Y}No PVCs found for StorageClass: $PX_SC${NC}" >&2
         echo "$tmp"
         return
     fi
@@ -192,18 +192,18 @@ run_scan() {
     echo "" >&2  # New line after progress
     # Verify temp file exists and has content
     if [[ ! -f "$tmp" ]]; then
-        log "${R}Error: Temp file $tmp was deleted!${NC}" >&2
+        echo -e "${R}Error: Temp file $tmp was deleted!${NC}" >&2
         return 1
     fi
     # Ensure file is readable
     if [[ ! -r "$tmp" ]]; then
-        log "${R}Error: Temp file $tmp is not readable!${NC}" >&2
+        echo -e "${R}Error: Temp file $tmp is not readable!${NC}" >&2
         return 1
     fi
     # Verify file has content (at least one line)
     local line_count=$(wc -l < "$tmp" 2>/dev/null || echo "0")
     if [[ "$line_count" -eq 0 ]]; then
-        log "${Y}Warning: Temp file $tmp is empty.${NC}" >&2
+        echo -e "${Y}Warning: Temp file $tmp is empty.${NC}" >&2
     fi
     # Return absolute path (must be on stdout, not stderr)
     echo "$tmp"
