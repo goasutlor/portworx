@@ -142,6 +142,10 @@ get_volume_rep() {
 run_scan() {
     local tmp="/tmp/px_vp_$$_scan"
     : > "$tmp"
+    if [[ ! -f "$tmp" ]]; then
+        log "${R}Error: Cannot create temp file $tmp${NC}" >&2
+        return 1
+    fi
     log "${C}Fetching PVCs for StorageClass: $PX_SC...${NC}"
     local pvcs
     pvcs=$(get_pvcs_for_sc)
@@ -186,10 +190,22 @@ run_scan() {
         echo "$idx|$ns|$pvc|$vol_id|$pod_node|$pod_ip|$replica_ips|$rep|$status" >> "$tmp"
     done <<< "$pvcs"
     echo "" >&2  # New line after progress
+    # Verify temp file exists and has content
     if [[ ! -f "$tmp" ]]; then
-        log "${R}Error: Temp file $tmp was deleted!${NC}"
+        log "${R}Error: Temp file $tmp was deleted!${NC}" >&2
         return 1
     fi
+    # Ensure file is readable
+    if [[ ! -r "$tmp" ]]; then
+        log "${R}Error: Temp file $tmp is not readable!${NC}" >&2
+        return 1
+    fi
+    # Verify file has content (at least one line)
+    local line_count=$(wc -l < "$tmp" 2>/dev/null || echo "0")
+    if [[ "$line_count" -eq 0 ]]; then
+        log "${Y}Warning: Temp file $tmp is empty.${NC}" >&2
+    fi
+    # Return absolute path (must be on stdout, not stderr)
     echo "$tmp"
 }
 
@@ -475,8 +491,15 @@ SCAN_FILE=""
 
 # Initial rescan: show only PVC list
 SCAN_FILE=$(run_scan)
-if [[ -z "$SCAN_FILE" || ! -f "$SCAN_FILE" ]]; then
-    log "${R}Error: Scan failed or temp file missing.${NC}"
+if [[ -z "$SCAN_FILE" ]]; then
+    log "${R}Error: Scan failed - no temp file returned.${NC}"
+    exit 1
+fi
+# Debug: verify file exists immediately after assignment
+if [[ ! -f "$SCAN_FILE" ]]; then
+    log "${R}Error: Scan failed - temp file missing: $SCAN_FILE${NC}"
+    log "${Y}Debug: Checking /tmp/px_vp_$$_scan...${NC}"
+    ls -la "/tmp/px_vp_$$_scan" 2>&1 || true
     exit 1
 fi
 print_scan_table "$SCAN_FILE"
