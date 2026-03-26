@@ -124,7 +124,12 @@ get_replica_ips() {
     local vol_id="$1"
     local raw
     raw=$(timeout 10 oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume inspect "$vol_id" 2>/dev/null)
-    echo "$raw" | sed -n '/Replica sets on nodes:/,/Replication Status/p' | grep "Node " | awk -F': ' '{print $2}' | xargs
+    # Parse all IPv4 values from replica section; avoid brittle "Node " text matching.
+    echo "$raw" \
+        | sed -n '/Replica sets on nodes:/,/Replication Status/p' \
+        | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | awk '!seen[$0]++' \
+        | xargs
 }
 
 # --- Get volume replication factor (Rep = number of replicas) ---
@@ -212,6 +217,29 @@ run_scan() {
 # --- Print scan table ---
 print_scan_table() {
     local f="$1"
+    # Keep REPLICAS readable without cutting an IP in the middle.
+    format_replica_display() {
+        local replicas="$1"
+        local max_show=3
+        local shown=0
+        local total=0
+        local out=""
+        local ip
+
+        for ip in $replicas; do
+            ((total++))
+            if (( shown < max_show )); then
+                out+="${out:+ }$ip"
+                ((shown++))
+            fi
+        done
+
+        if (( total > max_show )); then
+            out+=" +$((total - max_show)) more"
+        fi
+        echo "$out"
+    }
+
     log ""
     log "${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     log "${B}SC: $PX_SC | PX: $PX_NS${NC}"
@@ -235,7 +263,8 @@ print_scan_table() {
         [[ "$status" == "NO_PX" ]] && col="$M"
         local pvc_short="${pvc:0:24}"
         local pod_display="${pod_node:0:24}"
-        local reps_short="${replica_ips:0:30}"
+        local reps_short
+        reps_short=$(format_replica_display "$replica_ips")
         log "$(printf "%-4s [%s]  %-18s %-26s %-24s %-5s ${col}%-8s${NC} %s" "$idx" "$sel" "$ns" "$pvc_short" "$pod_display" "$rep" "$status" "$reps_short")"
     done < "$f" 2>/dev/null
     log "--------------------------------------------------------------------------------"
@@ -326,16 +355,29 @@ organize_volume() {
     log "${Y}Step 1:${NC} Add replica on Pod node $pod_ip (IP)..."
     pod_node_id=$(ip_to_node_id "$pod_ip"); [[ -z "$pod_node_id" ]] && pod_node_id="$pod_ip"
     log "  Command: pxctl volume ha-update -r $new_rep -n $pod_node_id $vol_id"
-    oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume ha-update -r "$new_rep" -n "$pod_node_id" "$vol_id" 2>&1 | tee -a "$LOG_FILE"
+    local out1 rc1
+    out1=$(oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume ha-update -r "$new_rep" -n "$pod_node_id" "$vol_id" 2>&1)
+    rc1=$?
+    echo "$out1" | tee -a "$LOG_FILE"
+    if [[ $rc1 -ne 0 ]]; then
+        log "${R}Step 1 failed (exit $rc1). Stop organize for this volume.${NC}"
+        log ""
+        return 1
+    fi
     log "  Waiting for replication (30s)..."
     sleep 30
     replica_ips=$(get_replica_ips "$vol_id")
+    if [[ -z "$replica_ips" ]]; then
+        log "${R}Could not read replica nodes after Step 1. Keeping current Rep and stop to avoid wrong removal.${NC}"
+        log ""
+        return 1
+    fi
     local to_remove=""
     for rip in $replica_ips; do
         [[ "$rip" != "$pod_ip" ]] && { to_remove="$rip"; break; }
     done
     if [[ -z "$to_remove" ]]; then
-        log "${G}Replica added on Pod node. Keeping Rep=$new_rep.${NC}"
+        log "${Y}No non-Pod replica candidate found. Keeping Rep=$new_rep.${NC}"
         log ""
         return 0
     fi
@@ -343,7 +385,15 @@ organize_volume() {
     log "${Y}Step 2:${NC} Remove replica from node $to_remove (IP)..."
     to_node_id=$(ip_to_node_id "$to_remove"); [[ -z "$to_node_id" ]] && to_node_id="$to_remove"
     log "  Command: pxctl volume ha-update -r $rep -n $to_node_id $vol_id"
-    oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume ha-update -r "$rep" -n "$to_node_id" "$vol_id" 2>&1 | tee -a "$LOG_FILE"
+    local out2 rc2
+    out2=$(oc exec -n "$PX_NS" "$PX_POD" -- pxctl volume ha-update -r "$rep" -n "$to_node_id" "$vol_id" 2>&1)
+    rc2=$?
+    echo "$out2" | tee -a "$LOG_FILE"
+    if [[ $rc2 -ne 0 ]]; then
+        log "${R}Step 2 failed (exit $rc2). Volume may remain Rep=$new_rep. Please verify and retry.${NC}"
+        log ""
+        return 1
+    fi
     sleep 5
     log "${G}Done. Rep=$rep with replica on Pod node. Rescan to verify.${NC}"
     log ""
