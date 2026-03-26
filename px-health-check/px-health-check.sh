@@ -94,7 +94,8 @@ echo "$STATUS_RAW" | sed -n '/IP.*ID.*SchedulerNodeName/,/Global Storage Pool/p'
   CAP_GB=$(echo "$CAP" | awk '{n=$1; u=$2; if(u=="TiB") n=n*1024; print n+0}')
   USED_GB=$(echo "$USED" | awk '{n=$1; u=$2; if(u=="TiB") n=n*1024; print n+0}')
   UTIL="0.0"
-  if [[ -n "$CAP_GB" && -n "$USED_GB" && "${CAP_GB:-0}" -gt 0 ]]; then
+  # Use awk for numeric comparison because CAP_GB can be a decimal (e.g. 3379.2).
+  if awk -v c="${CAP_GB:-0}" -v u="${USED_GB:-0}" 'BEGIN{exit !(c>0 && u>=0)}'; then
     UTIL=$(awk -v u="$USED_GB" -v c="$CAP_GB" 'BEGIN{printf "%.1f", (u/c)*100}')
   fi
   COLR="$C_GRN"
