@@ -17,6 +17,50 @@ PX_NO_BLINK="${PX_NO_BLINK:-0}"
 # Unique temp prefix to avoid collision when multiple instances run
 TMP_PREFIX="/tmp/px_monitor_$$"
 
+# --- Function: Find first running Portworx pod in a namespace ---
+find_px_pod_in_ns() {
+    local ns="$1"
+    oc get pods -n "$ns" -l name=portworx --field-selector=status.phase=Running \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null
+}
+
+# --- Function: Resolve Portworx namespace/pod robustly ---
+resolve_px_context() {
+    local candidates detected_ns
+
+    # Try explicit/default PX_NS first
+    ANY_PX_POD=$(find_px_pod_in_ns "$PX_NS")
+    if [ -n "$ANY_PX_POD" ]; then
+        return
+    fi
+
+    # Then common candidates
+    candidates=("$CURRENT_NS" "portworx-cwdc" "portworx-cwdc-dev" "kube-system")
+    for ns in "${candidates[@]}"; do
+        [ -n "$ns" ] || continue
+        ANY_PX_POD=$(find_px_pod_in_ns "$ns")
+        if [ -n "$ANY_PX_POD" ]; then
+            PX_NS="$ns"
+            return
+        fi
+    done
+
+    # Final fallback: discover from all namespaces
+    detected_ns=$(oc get pods -A -l name=portworx \
+      -o jsonpath='{.items[0].metadata.namespace}' 2>/dev/null)
+    if [ -n "$detected_ns" ]; then
+        ANY_PX_POD=$(find_px_pod_in_ns "$detected_ns")
+        if [ -n "$ANY_PX_POD" ]; then
+            PX_NS="$detected_ns"
+            return
+        fi
+    fi
+
+    echo "ERROR: Cannot find running Portworx pod (label: name=portworx) in any namespace."
+    echo "Hint: export PX_NS=<your-portworx-namespace> and rerun."
+    exit 1
+}
+
 # --- Function: Select AutopilotRules ---
 select_rules() {
     clear
@@ -62,11 +106,14 @@ select_target() {
     VOL_REF_NAME=$(oc get pod "$POD_NAME" -n "$CURRENT_NS" -o jsonpath='{.spec.volumes[?(@.persistentVolumeClaim.claimName=="'$PVC_NAME'")].name}')
     TARGET_PATH=$(oc get pod "$POD_NAME" -n "$CURRENT_NS" -o jsonpath='{.spec.containers[*].volumeMounts[?(@.name=="'$VOL_REF_NAME'")].mountPath}')
 
-    # Identify any Portworx pod to run pxctl commands
-    ANY_PX_POD=$(oc get pods -n "$PX_NS" -l name=portworx -o jsonpath='{.items[0].metadata.name}')
+    # Identify any running Portworx pod to run pxctl commands
+    resolve_px_context
     
     # Store Volume Inspection data for the loop
-    INSPECT_DATA=$(oc exec "$ANY_PX_POD" -n "$PX_NS" -- pxctl volume inspect "$VOL_ID")
+    INSPECT_DATA=$(oc exec "$ANY_PX_POD" -n "$PX_NS" -- pxctl volume inspect "$VOL_ID" 2>/dev/null)
+    if [ -z "$INSPECT_DATA" ]; then
+        INSPECT_DATA=$(oc exec "$ANY_PX_POD" -n "$PX_NS" -- /opt/pwx/bin/pxctl volume inspect "$VOL_ID" 2>/dev/null)
+    fi
     
     # Extract Replica IPs for the Summary section
     REPLICA_IPS=$(echo "$INSPECT_DATA" | sed -n '/Replica sets on nodes:/,$p' | grep "Node" | awk -F': ' '{print $2}' | xargs)
@@ -99,6 +146,9 @@ clear_data() {
     sleep 1; clear; tput civis
 }
 
+# Resolve Portworx context first (namespace + pod), then continue
+resolve_px_context
+
 # Initialize Selection
 select_rules; select_target
 
@@ -125,9 +175,15 @@ while true; do
     
     # Background: Fetch Cluster Status every 5 iterations
     if [ $((COUNTER % 5)) -eq 1 ]; then
-        oc exec "$ANY_PX_POD" -n "$PX_NS" -- pxctl status > "${TMP_PREFIX}_cluster" 2>/dev/null &
+        (
+            oc exec "$ANY_PX_POD" -n "$PX_NS" -- pxctl status 2>/dev/null \
+            || oc exec "$ANY_PX_POD" -n "$PX_NS" -- /opt/pwx/bin/pxctl status 2>/dev/null
+        ) > "${TMP_PREFIX}_cluster" &
         # Refresh Inspect Data to track replica/pool changes
         INSPECT_DATA=$(oc exec "$ANY_PX_POD" -n "$PX_NS" -- pxctl volume inspect "$VOL_ID" 2>/dev/null)
+        if [ -z "$INSPECT_DATA" ]; then
+            INSPECT_DATA=$(oc exec "$ANY_PX_POD" -n "$PX_NS" -- /opt/pwx/bin/pxctl volume inspect "$VOL_ID" 2>/dev/null)
+        fi
         # Keep REPLICA_IPS in sync so [4] shows correct (REPLICA) markers after resize
         REPLICA_IPS=$(echo "$INSPECT_DATA" | sed -n '/Replica sets on nodes:/,$p' | grep "Node" | awk -F': ' '{print $2}' | xargs)
     fi
@@ -174,35 +230,64 @@ while true; do
 
     # [3. TARGET STORAGE POOLS] - Drill down into Replica Sets
     echo -e "\n${MAGENTA}[3. TARGET STORAGE POOLS (DRILL DOWN)]${NC}${CLEAR_EOL}"
-    printf "%-15s %-40s %-40s\n" "NODE_IP" "POOL_UUID" "DRIVE_PATH" | sed "s/$/${CLEAR_EOL}/"
-    
-    # Logic: Parse the 'Replica sets on nodes' block from pxctl inspect
-    echo "$INSPECT_DATA" | sed -n '/Replica sets on nodes:/,/Replication Status/p' | while read -r line; do
-        if [[ $line == *"Node"* ]]; then
-            r_node=$(echo "$line" | awk -F': ' '{print $2}' | xargs)
-            read next_line; r_pool=$(echo "$next_line" | awk -F': ' '{print $2}' | xargs)
-            read next_line; # FA-Name
-            read next_line; # Drive ID
-            read next_line; r_path=$(echo "$next_line" | awk -F': ' '{print $2}' | xargs)
-            
-            printf "%-15s %-40s %-40s\n" "$r_node" "$r_pool" "$r_path" | sed "s/$/${CLEAR_EOL}/"
-        fi
-    done
+    printf "%-6s %-15s %-40s %-40s\n" "SET" "NODE_IP" "POOL_UUID" "DRIVE_PATH" | sed "s/$/${CLEAR_EOL}/"
+
+    # Parse "Replica sets on nodes" block in a format-tolerant way.
+    # Some pxctl versions (e.g. local disk setups) do not include Drive Path lines.
+    section3_rows_data=$(echo "$INSPECT_DATA" | awk '
+        /Replica sets on nodes:/ {in_block=1; next}
+        /Replication Status/ {in_block=0}
+        in_block && /Set[[:space:]]+[0-9]+/ {
+            set_id=$0
+            sub(/^.*Set[[:space:]]+/, "", set_id)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", set_id)
+        }
+        in_block && /Node[[:space:]]*:/ {
+            node=$0
+            sub(/^.*:[[:space:]]*/, "", node)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", node)
+        }
+        in_block && /Pool UUID[[:space:]]*:/ {
+            pool=$0
+            sub(/^.*:[[:space:]]*/, "", pool)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", pool)
+            if (node != "") printf "%-6s %-15s %-40s %-40s\n", (set_id==""?"-":set_id), node, pool, "N/A"
+        }
+    ')
+    section3_rows=0
+    while IFS= read -r row; do
+        [ -n "$row" ] || continue
+        section3_rows=$((section3_rows + 1))
+        echo "${row}${CLEAR_EOL}"
+    done <<< "$section3_rows_data"
+    if [ "$section3_rows" -eq 0 ]; then
+        echo "No replica/pool rows parsed from pxctl inspect output.${CLEAR_EOL}"
+    fi
+    vol_ha=$(echo "$INSPECT_DATA" | awk -F':' '/^[[:space:]]*HA[[:space:]]*:/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')
+    [ -n "$vol_ha" ] && echo " Note: This section shows volume replicas only (HA=${vol_ha}), not all cluster nodes.${CLEAR_EOL}"
 
     # [4. PX CLUSTER SUMMARY]
     echo -e "\n${CYAN}[4. PX CLUSTER SUMMARY]${NC}${CLEAR_EOL}"
     printf "%-15s %-45s %-10s %-15s\n" "NODE_IP" "NODE_NAME" "STATUS" "STORAGE_STATUS" | sed "s/$/${CLEAR_EOL}/"
     if [ -s "${TMP_PREFIX}_cluster" ]; then
-        grep -E "[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" "${TMP_PREFIX}_cluster" | grep -vE "attached|raid|POOL|Device" | while read -r line; do
-            ni=$(echo "$line" | awk '{print $1}')
-            # Skip header-like lines (e.g. "IP:" from pxctl output)
-            [[ "$ni" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-            nm=$(echo "$line" | awk '{print $3}'); ir=""
-            # Mark if this node is part of the current volume's replica set
+        while IFS= read -r line; do
+            ni=$(echo "$line" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -n 1)
+            [ -n "$ni" ] || continue
+
+            st=$(echo "$line" | grep -oE "Online|Offline|Degraded" | head -n 1)
+            [ -n "$st" ] || continue
+
+            ss=$(echo "$line" | grep -oE "Up \(This node\)|Up|Down" | head -n 1 | sed "s/ (This node)//")
+
+            # SchedulerNodeName is consistently the 3rd column in "Cluster Summary" rows
+            nm=$(echo "$line" | awk '{print $3}')
+            [ -n "$nm" ] || nm="-"
+
+            ir=""
             [[ "$REPLICA_IPS" =~ "$ni" ]] && ir=" (REPLICA)"
-            st=$(echo "$line" | grep -oE "Online|Offline"); ss=$(echo "$line" | grep -oE "Up \(This node\)|Up" | sed 's/ (This node)//' | head -n 1)
-            printf "%-15s %-45s %-10s %-15s${YELLOW}%s${NC}\n" "$ni" "$nm" "$st" "$ss" "$ir" | sed "s/$/${CLEAR_EOL}/"
-        done
+
+            printf "%-15s %-45s %-10s %-15s${YELLOW}%s${NC}\n" "$ni" "$nm" "$st" "${ss:-N/A}" "$ir" | sed "s/$/${CLEAR_EOL}/"
+        done < "${TMP_PREFIX}_cluster"
     fi
 
     # [5. LOAD GENERATOR]
