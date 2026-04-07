@@ -4,6 +4,7 @@
 # VERSION: 1.0.06022026
 # Purpose: Monitor Portworx PVCs, Replica health, and Autopilot transitions
 # Optional env: PX_NS (default portworx-cwdc), PX_FS_WARN_PCT (default 50), PX_NO_BLINK=1 to disable blink
+# Section [2] prefers AutopilotRuleObject named like spec.volumeName (per-PVC); falls back to AutopilotRule Events if missing.
 # ==============================================================================
 
 # Remark: Detect current active namespace or fallback to default
@@ -65,7 +66,7 @@ resolve_px_context() {
 select_rules() {
     clear
     echo "------------------------------------------------"
-    echo " Step 1: Select AutopilotRules to Monitor"
+    echo " Step 1: Select AutopilotRules (legacy fallback if no AutopilotRuleObject for this volume)"
     echo "------------------------------------------------"
     rule_list=($(oc get autopilotrule -o jsonpath='{.items[*].metadata.name}' 2>/dev/null))
     if [ ${#rule_list[@]} -eq 0 ]; then
@@ -218,15 +219,34 @@ while true; do
     echo -e "${f_pc_display}${CLEAR_EOL}"
     echo "----------------------------------------------------------------------------------------------------${CLEAR_EOL}"
 
-    # [2. ARO – RULE EVENTS] (Autopilot Rule Object: state & transitions per selected rule/PVC)
+    # [2. ARO – per-PVC AutopilotRuleObject status.items, else AutopilotRule Events (shared)
     echo "${YELLOW}[2. ARO – RULE EVENTS]${NC}${CLEAR_EOL}"
-    for RULE in "${SELECTED_RULES[@]}"; do
-        d_rule=$(echo $RULE | xargs); st=$(oc get autopilotrule "$d_rule" -o jsonpath='{.status.state}' 2>/dev/null)
-        echo " > RULE: ${CYAN}$d_rule${NC} | STATE: ${st:-Active}${CLEAR_EOL}"
-        evs=$(oc describe autopilotrule "$d_rule" 2>/dev/null | sed -n '/Events:/,$p' | grep "transition from" | tail -n 2)
-        if [ -z "$evs" ]; then echo "    No transition events${CLEAR_EOL}"
-        else echo "$evs" | awk -v cl="$CLEAR_EOL" '{match($0, /transition from /); t=($3~/invalid|^</||$3=="") ? " - " : $3; printf "    [%-8s] %s%s\n", t, substr($0, RSTART+16), cl}'; fi
-    done
+    aro_name=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o jsonpath='{.metadata.name}' 2>/dev/null)
+    if [ -n "$aro_name" ] && [ "$aro_name" = "$VOL_ID" ]; then
+        aro_rule=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o jsonpath='{.metadata.labels.rule}' 2>/dev/null)
+        aro_st=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.state}}{{"\n"}}{{end}}' 2>/dev/null | tail -n 1)
+        echo " > ARO: ${CYAN}$VOL_ID${NC} | RULE: ${CYAN}${aro_rule:-?}${NC} | STATE: ${aro_st:-?}${CLEAR_EOL}"
+        aro_lines=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.lastProcessTimestamp}}{{"\t"}}{{.message}}{{"\n"}}{{end}}' 2>/dev/null | grep "transition from" | tail -n 2)
+        if [ -z "$aro_lines" ]; then echo "    No transition entries in status.items${CLEAR_EOL}"
+        else
+            while IFS=$'\t' read -r ts msg; do
+                [ -n "$msg" ] || continue
+                short_ts=$(echo "$ts" | sed 's/T/ /;s/Z$//')
+                trans=$(echo "$msg" | sed 's/.*transition from //')
+                printf "    [%-19s] %s%s\n" "$short_ts" "$trans" "$CLEAR_EOL"
+            done <<< "$aro_lines"
+        fi
+    elif [ ${#SELECTED_RULES[@]} -gt 0 ]; then
+        for RULE in "${SELECTED_RULES[@]}"; do
+            d_rule=$(echo $RULE | xargs); st=$(oc get autopilotrule "$d_rule" -o jsonpath='{.status.state}' 2>/dev/null)
+            echo " > RULE: ${CYAN}$d_rule${NC} | STATE: ${st:-Active}${CLEAR_EOL}"
+            evs=$(oc describe autopilotrule "$d_rule" 2>/dev/null | sed -n '/Events:/,$p' | grep "transition from" | tail -n 2)
+            if [ -z "$evs" ]; then echo "    No transition events${CLEAR_EOL}"
+            else echo "$evs" | awk -v cl="$CLEAR_EOL" '{match($0, /transition from /); t=($3~/invalid|^</||$3=="") ? " - " : $3; printf "    [%-8s] %s%s\n", t, substr($0, RSTART+16), cl}'; fi
+        done
+    else
+        echo "    No AutopilotRuleObject ${CYAN}$VOL_ID${NC} in ns ${CYAN}$CURRENT_NS${NC} and no rules selected for fallback.${CLEAR_EOL}"
+    fi
 
     # [3. TARGET STORAGE POOLS] - Drill down into Replica Sets
     echo -e "\n${MAGENTA}[3. TARGET STORAGE POOLS (DRILL DOWN)]${NC}${CLEAR_EOL}"
