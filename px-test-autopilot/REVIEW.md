@@ -40,7 +40,7 @@
 - ตอนนี้ hardcode 50% สำหรับ RED_BLINK → ใช้ env เช่น `PX_FS_WARN_PCT=50` (default 50) จะยืดหยุ่นกว่า
 
 ### 3. **PX namespace discovery**
-- สคริปต์อื่นในโปรเจกต์ (px-health-check, px-house-keeping, px-snapshot) มีการหา PX namespace แบบ fallback (portworx-tls2, portworx-cwdc, portworx, kube-system)
+- สคริปต์อื่นในโปรเจกต์ (px-health-check, px-house-keeping, px-snapshot) มักมีการหา PX namespace แบบ fallback (เช่น `portworx`, `kube-system`)
 - ถ้าต้องการให้ใช้กับหลาย env ได้โดยไม่แก้โค้ด ให้ใช้ discovery แบบเดียวกัน แล้วค่อย override ด้วย env `PX_NS` ได้
 
 ### 4. **ปิด blink (optional)**

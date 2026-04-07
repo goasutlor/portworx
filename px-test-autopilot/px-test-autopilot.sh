@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
 # PX-ALERT-MONITOR: Portworx Volume and Autopilot Tracking Tool
-# VERSION: 1.0.06022026
+# VERSION: 1.1.08042026
 # Purpose: Monitor Portworx PVCs, Replica health, and Autopilot transitions
-# Optional env: PX_NS (default portworx-cwdc), PX_FS_WARN_PCT (default 50), PX_NO_BLINK=1 to disable blink
+# Optional env: PX_NS (default portworx), PX_FS_WARN_PCT (default 50), PX_NO_BLINK=1 to disable blink
 # Section [2] prefers AutopilotRuleObject named like spec.volumeName (per-PVC); falls back to AutopilotRule Events if missing.
 # PX_ARO_JOURNEY_MAX: max transition lines from ARO status.items (default 30, 0 = unlimited).
 PX_ARO_JOURNEY_MAX="${PX_ARO_JOURNEY_MAX:-30}"
@@ -13,7 +13,7 @@ PX_ARO_JOURNEY_DISPLAY="${PX_ARO_JOURNEY_DISPLAY:-8}"
 
 # Remark: Detect current active namespace or fallback to default
 CURRENT_NS=$(oc project -q 2>/dev/null)
-PX_NS="${PX_NS:-portworx-cwdc}"  # Override with env if needed
+PX_NS="${PX_NS:-portworx}"  # Override with env if needed (use your cluster's Portworx namespace)
 
 # Optional: FS usage % to trigger alert (default 50); set PX_NO_BLINK=1 to disable blink
 PX_FS_WARN_PCT="${PX_FS_WARN_PCT:-50}"
@@ -40,7 +40,7 @@ resolve_px_context() {
     fi
 
     # Then common candidates
-    candidates=("$CURRENT_NS" "portworx-cwdc" "portworx-cwdc-dev" "kube-system")
+    candidates=("$CURRENT_NS" "portworx" "kube-system" "openshift-storage")
     for ns in "${candidates[@]}"; do
         [ -n "$ns" ] || continue
         ANY_PX_POD=$(find_px_pod_in_ns "$ns")
