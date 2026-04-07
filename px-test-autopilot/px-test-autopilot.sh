@@ -5,6 +5,8 @@
 # Purpose: Monitor Portworx PVCs, Replica health, and Autopilot transitions
 # Optional env: PX_NS (default portworx-cwdc), PX_FS_WARN_PCT (default 50), PX_NO_BLINK=1 to disable blink
 # Section [2] prefers AutopilotRuleObject named like spec.volumeName (per-PVC); falls back to AutopilotRule Events if missing.
+# PX_ARO_JOURNEY_MAX: max transition lines from ARO status.items (default 30, 0 = unlimited).
+PX_ARO_JOURNEY_MAX="${PX_ARO_JOURNEY_MAX:-30}"
 # ==============================================================================
 
 # Remark: Detect current active namespace or fallback to default
@@ -225,24 +227,46 @@ while true; do
     if [ -n "$aro_name" ] && [ "$aro_name" = "$VOL_ID" ]; then
         aro_rule=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o jsonpath='{.metadata.labels.rule}' 2>/dev/null)
         aro_st=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.state}}{{"\n"}}{{end}}' 2>/dev/null | tail -n 1)
-        echo " > ARO: ${CYAN}$VOL_ID${NC} | RULE: ${CYAN}${aro_rule:-?}${NC} | STATE: ${aro_st:-?}${CLEAR_EOL}"
-        aro_lines=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.lastProcessTimestamp}}{{"\t"}}{{.message}}{{"\n"}}{{end}}' 2>/dev/null | grep "transition from" | tail -n 2)
+        echo "${CLEAR_EOL}"
+        echo " > ARO:   ${CYAN}$VOL_ID${NC}${CLEAR_EOL}"
+        echo "   RULE:  ${CYAN}${aro_rule:-?}${NC}${CLEAR_EOL}"
+        echo "   STATE: ${CYAN}${aro_st:-?}${NC}${CLEAR_EOL}"
+        echo "${CLEAR_EOL}"
+        aro_lines=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.lastProcessTimestamp}}{{"\t"}}{{.message}}{{"\n"}}{{end}}' 2>/dev/null | grep "transition from")
+        if [ -n "$PX_ARO_JOURNEY_MAX" ] && [ "$PX_ARO_JOURNEY_MAX" != "0" ]; then
+            aro_lines=$(echo "$aro_lines" | tail -n "$PX_ARO_JOURNEY_MAX")
+        fi
         if [ -z "$aro_lines" ]; then echo "    No transition entries in status.items${CLEAR_EOL}"
         else
+            # Wide layout: time column + gap + full transition journey
+            _tsw=23
+            printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "WHEN (UTC)" "STATE TRANSITION"
+            _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
+            printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "$_dash" "------------------------------------------------------------------"
             while IFS=$'\t' read -r ts msg; do
                 [ -n "$msg" ] || continue
                 short_ts=$(echo "$ts" | sed 's/T/ /;s/Z$//')
+                [ -z "$short_ts" ] && short_ts="—"
                 trans=$(echo "$msg" | sed 's/.*transition from //')
-                printf "    [%-19s] %s%s\n" "$short_ts" "$trans" "$CLEAR_EOL"
+                printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "$short_ts" "$trans"
             done <<< "$aro_lines"
         fi
     elif [ ${#SELECTED_RULES[@]} -gt 0 ]; then
         for RULE in "${SELECTED_RULES[@]}"; do
             d_rule=$(echo $RULE | xargs); st=$(oc get autopilotrule "$d_rule" -o jsonpath='{.status.state}' 2>/dev/null)
-            echo " > RULE: ${CYAN}$d_rule${NC} | STATE: ${st:-Active}${CLEAR_EOL}"
-            evs=$(oc describe autopilotrule "$d_rule" 2>/dev/null | sed -n '/Events:/,$p' | grep "transition from" | tail -n 2)
+            echo "${CLEAR_EOL}"
+            echo " > RULE:  ${CYAN}$d_rule${NC}${CLEAR_EOL}"
+            echo "   STATE: ${CYAN}${st:-Active}${NC}${CLEAR_EOL}"
+            echo "${CLEAR_EOL}"
+            evs=$(oc describe autopilotrule "$d_rule" 2>/dev/null | sed -n '/Events:/,$p' | grep "transition from" | tail -n 12)
             if [ -z "$evs" ]; then echo "    No transition events${CLEAR_EOL}"
-            else echo "$evs" | awk -v cl="$CLEAR_EOL" '{match($0, /transition from /); t=($3~/invalid|^</||$3=="") ? " - " : $3; printf "    [%-8s] %s%s\n", t, substr($0, RSTART+16), cl}'; fi
+            else
+                _tsw=10
+                printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "AGE" "STATE TRANSITION"
+                _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
+                printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "$_dash" "------------------------------------------------------------------"
+                echo "$evs" | awk -v tw="${_tsw}" -v cl="$CLEAR_EOL" '{match($0, /transition from /); age=($3~/invalid|^</||$3=="") ? "—" : $3; printf "    %-*s      %s%s\n", tw, age, substr($0, RSTART+16), cl}'
+            fi
         done
     else
         echo "    No AutopilotRuleObject ${CYAN}$VOL_ID${NC} in ns ${CYAN}$CURRENT_NS${NC} and no rules selected for fallback.${CLEAR_EOL}"
