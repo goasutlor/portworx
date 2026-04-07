@@ -20,6 +20,7 @@ Ideal for **implementers** who need to **showcase Autopilot**: you need some pre
 
 ### Behaviour notes (recent improvements)
 
+- **Section [2] height:** The dashboard redraws from the top (`tput cup`) without clearing the whole screen. The journey block uses a **fixed row count** (`PX_ARO_JOURNEY_DISPLAY`, default 8) so when the history gets shorter, blank lines still overwrite older output and **text does not “leak” into [3]**.
 - **Portworx pod / namespace:** The script resolves a **running** pod with `name=portworx` for `pxctl`. It tries `PX_NS`, then the current project, then common namespaces (e.g. `portworx-cwdc`, `portworx-cwdc-dev`, `kube-system`), then cluster-wide discovery. Override with **`PX_NS`** if needed.
 - **`pxctl` path:** Tries `pxctl` on `PATH`, then **`/opt/pwx/bin/pxctl`** inside the Portworx pod.
 - **Section [4]:** Cluster file is read with a correct shell redirect so the UI **does not hang** waiting on stdin.
@@ -105,7 +106,8 @@ chmod +x px-test-autopilot.sh
 | `PX_NS` | `portworx-cwdc` | Portworx namespace hint (first try); script may auto-detect another namespace if no `name=portworx` pod is found there. |
 | `PX_FS_WARN_PCT` | `50` | FS use% above which the storage layer shows an alert. |
 | `PX_NO_BLINK` | `0` | Set to `1` (or `y`/`Y`/`t`/`T`) to disable blink on high usage (use bold colour only). |
-| `PX_ARO_JOURNEY_MAX` | `30` | Max number of **AutopilotRuleObject** `status.items` transition lines shown in [2]. Set to **`0`** for unlimited (long histories may wrap). |
+| `PX_ARO_JOURNEY_MAX` | `30` | Max transition lines read from the ARO after sort (before display window). Set to **`0`** for unlimited. |
+| `PX_ARO_JOURNEY_DISPLAY` | `8` | **Fixed number of rows** for the [2] journey table (shows the **last N** transitions). Padding clears leftover lines on redraw so old text does not appear under [3]. Set to **`0`** to show all parsed lines (can grow tall and leave ghosts if the list shrinks). |
 
 ---
 

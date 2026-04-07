@@ -7,6 +7,8 @@
 # Section [2] prefers AutopilotRuleObject named like spec.volumeName (per-PVC); falls back to AutopilotRule Events if missing.
 # PX_ARO_JOURNEY_MAX: max transition lines from ARO status.items (default 30, 0 = unlimited).
 PX_ARO_JOURNEY_MAX="${PX_ARO_JOURNEY_MAX:-30}"
+# PX_ARO_JOURNEY_DISPLAY: fixed rows for [2] journey (last N shown; pad with blanks so redraw never leaves ghost lines). 0 = show all (may scroll / smear into [3]).
+PX_ARO_JOURNEY_DISPLAY="${PX_ARO_JOURNEY_DISPLAY:-8}"
 # ==============================================================================
 
 # Remark: Detect current active namespace or fallback to default
@@ -252,21 +254,39 @@ while true; do
         if [ -n "$PX_ARO_JOURNEY_MAX" ] && [ "$PX_ARO_JOURNEY_MAX" != "0" ]; then
             aro_lines=$(echo "$aro_lines" | tail -n "$PX_ARO_JOURNEY_MAX")
         fi
-        if [ -z "$aro_lines" ]; then echo "    No transition entries in status.items${CLEAR_EOL}"
-        else
-            # One transition per line (CLEAR_EOL clears trailing junk on redraw; \\n advances cursor).
-            _tsw=23
-            printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "WHEN (UTC)" "STATE TRANSITION"
-            _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
-            printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$_dash" "------------------------------------------------------------------"
+        # Fixed-height journey: always DISPLAY data rows (+ 2 header lines) so a shorter [2] redraw erases ghosts (no bleed into [3]).
+        _tsw=23
+        printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "WHEN (UTC)" "STATE TRANSITION"
+        _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
+        printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$_dash" "------------------------------------------------------------------"
+        _pad_line() { printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "" ""; }
+        if [ -z "$aro_lines" ]; then
+            printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "—" "(no transitions in status.items)"
+            n_show=1
+        elif [ -n "$PX_ARO_JOURNEY_DISPLAY" ] && [ "$PX_ARO_JOURNEY_DISPLAY" != "0" ]; then
+            aro_show=$(echo "$aro_lines" | tail -n "$PX_ARO_JOURNEY_DISPLAY")
+            n_show=0
             while IFS=$'\t' read -r ts msg; do
                 [ -n "$msg" ] || continue
                 short_ts=$(echo "$ts" | sed 's/T/ /;s/Z$//')
                 [ -z "$short_ts" ] && short_ts="—"
                 trans=$(echo "$msg" | sed 's/.*transition from //')
                 printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$short_ts" "$trans"
-                echo ""
+                n_show=$((n_show + 1))
+            done <<< "$aro_show"
+        else
+            n_show=0
+            while IFS=$'\t' read -r ts msg; do
+                [ -n "$msg" ] || continue
+                short_ts=$(echo "$ts" | sed 's/T/ /;s/Z$//')
+                [ -z "$short_ts" ] && short_ts="—"
+                trans=$(echo "$msg" | sed 's/.*transition from //')
+                printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$short_ts" "$trans"
+                n_show=$((n_show + 1))
             done <<< "$aro_lines"
+        fi
+        if [ -n "$PX_ARO_JOURNEY_DISPLAY" ] && [ "$PX_ARO_JOURNEY_DISPLAY" != "0" ]; then
+            while [ "$n_show" -lt "$PX_ARO_JOURNEY_DISPLAY" ]; do _pad_line; n_show=$((n_show + 1)); done
         fi
     elif [ ${#SELECTED_RULES[@]} -gt 0 ]; then
         for RULE in "${SELECTED_RULES[@]}"; do
@@ -276,13 +296,28 @@ while true; do
             echo "   STATE: ${CYAN}${st:-Active}${NC}${CLEAR_EOL}"
             echo "${CLEAR_EOL}"
             evs=$(oc describe autopilotrule "$d_rule" 2>/dev/null | sed -n '/Events:/,$p' | grep "transition from" | tail -n 12)
+            if [ -n "$PX_ARO_JOURNEY_DISPLAY" ] && [ "$PX_ARO_JOURNEY_DISPLAY" != "0" ] && [ -n "$evs" ]; then
+                evs=$(echo "$evs" | tail -n "$PX_ARO_JOURNEY_DISPLAY")
+            fi
             if [ -z "$evs" ]; then echo "    No transition events${CLEAR_EOL}"
             else
                 _tsw=10
                 printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "AGE" "STATE TRANSITION"
                 _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
                 printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$_dash" "------------------------------------------------------------------"
-                echo "$evs" | awk -v tw="${_tsw}" -v cl="$CLEAR_EOL" '{match($0, /transition from /); age=($3~/invalid|^</||$3=="") ? "—" : $3; printf "    %-*s      %s%s\n", tw, age, substr($0, RSTART+16), cl; print ""}'
+                n_ev=0
+                while IFS= read -r evline; do
+                    [ -z "$evline" ] && continue
+                    out=$(echo "$evline" | awk -v tw="${_tsw}" -v cl="$CLEAR_EOL" '{match($0, /transition from /); age=($3~/invalid|^</||$3=="") ? "—" : $3; printf "    %-*s      %s%s\n", tw, age, substr($0, RSTART+16), cl}')
+                    printf "%s\n" "$out"
+                    n_ev=$((n_ev + 1))
+                done <<< "$evs"
+                if [ -n "$PX_ARO_JOURNEY_DISPLAY" ] && [ "$PX_ARO_JOURNEY_DISPLAY" != "0" ]; then
+                    while [ "$n_ev" -lt "$PX_ARO_JOURNEY_DISPLAY" ]; do
+                        printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "" ""
+                        n_ev=$((n_ev + 1))
+                    done
+                fi
             fi
         done
     else
