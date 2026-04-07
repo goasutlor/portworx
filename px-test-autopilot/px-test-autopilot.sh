@@ -226,29 +226,46 @@ while true; do
     aro_name=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o jsonpath='{.metadata.name}' 2>/dev/null)
     if [ -n "$aro_name" ] && [ "$aro_name" = "$VOL_ID" ]; then
         aro_rule=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o jsonpath='{.metadata.labels.rule}' 2>/dev/null)
-        aro_st=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.state}}{{"\n"}}{{end}}' 2>/dev/null | tail -n 1)
+        aro_desc=$(oc describe autopilotruleobjects "$VOL_ID" -n "$CURRENT_NS" 2>/dev/null)
+        aro_st=$(echo "$aro_desc" | awk '/^[[:space:]]*State:[[:space:]]+/ {s=$2} END{print s}')
         echo "${CLEAR_EOL}"
         echo " > ARO:   ${CYAN}$VOL_ID${NC}${CLEAR_EOL}"
         echo "   RULE:  ${CYAN}${aro_rule:-?}${NC}${CLEAR_EOL}"
         echo "   STATE: ${CYAN}${aro_st:-?}${NC}${CLEAR_EOL}"
         echo "${CLEAR_EOL}"
-        aro_lines=$(oc get autopilotruleobject "$VOL_ID" -n "$CURRENT_NS" -o go-template='{{range .status.items}}{{.lastProcessTimestamp}}{{"\t"}}{{.message}}{{"\n"}}{{end}}' 2>/dev/null | grep "transition from")
+        aro_lines=$(echo "$aro_desc" | awk '
+            /^[[:space:]]*Status:/ {in_status=1; next}
+            in_status && /^[[:space:]]*Events:/ {in_status=0}
+            in_status && /^[[:space:]]*Last Process Timestamp:/ {
+                ts=$0
+                sub(/^[[:space:]]*Last Process Timestamp:[[:space:]]*/, "", ts)
+                next
+            }
+            in_status && /^[[:space:]]*Message:/ {
+                msg=$0
+                sub(/^[[:space:]]*Message:[[:space:]]*/, "", msg)
+                if (msg ~ /transition from/) {
+                    print ts "\t" msg
+                }
+            }
+        ' | sort)
         if [ -n "$PX_ARO_JOURNEY_MAX" ] && [ "$PX_ARO_JOURNEY_MAX" != "0" ]; then
             aro_lines=$(echo "$aro_lines" | tail -n "$PX_ARO_JOURNEY_MAX")
         fi
         if [ -z "$aro_lines" ]; then echo "    No transition entries in status.items${CLEAR_EOL}"
         else
-            # Wide layout: time column + gap + full transition journey
+            # One transition per line (CLEAR_EOL clears trailing junk on redraw; \\n advances cursor).
             _tsw=23
-            printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "WHEN (UTC)" "STATE TRANSITION"
+            printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "WHEN (UTC)" "STATE TRANSITION"
             _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
-            printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "$_dash" "------------------------------------------------------------------"
+            printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$_dash" "------------------------------------------------------------------"
             while IFS=$'\t' read -r ts msg; do
                 [ -n "$msg" ] || continue
                 short_ts=$(echo "$ts" | sed 's/T/ /;s/Z$//')
                 [ -z "$short_ts" ] && short_ts="—"
                 trans=$(echo "$msg" | sed 's/.*transition from //')
-                printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "$short_ts" "$trans"
+                printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$short_ts" "$trans"
+                echo ""
             done <<< "$aro_lines"
         fi
     elif [ ${#SELECTED_RULES[@]} -gt 0 ]; then
@@ -262,10 +279,10 @@ while true; do
             if [ -z "$evs" ]; then echo "    No transition events${CLEAR_EOL}"
             else
                 _tsw=10
-                printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "AGE" "STATE TRANSITION"
+                printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "AGE" "STATE TRANSITION"
                 _dash=$(printf '%*s' "$_tsw" '' | tr ' ' '-')
-                printf "    %-*s      %s${CLEAR_EOL}" "$_tsw" "$_dash" "------------------------------------------------------------------"
-                echo "$evs" | awk -v tw="${_tsw}" -v cl="$CLEAR_EOL" '{match($0, /transition from /); age=($3~/invalid|^</||$3=="") ? "—" : $3; printf "    %-*s      %s%s\n", tw, age, substr($0, RSTART+16), cl}'
+                printf "    %-*s      %s${CLEAR_EOL}\n" "$_tsw" "$_dash" "------------------------------------------------------------------"
+                echo "$evs" | awk -v tw="${_tsw}" -v cl="$CLEAR_EOL" '{match($0, /transition from /); age=($3~/invalid|^</||$3=="") ? "—" : $3; printf "    %-*s      %s%s\n", tw, age, substr($0, RSTART+16), cl; print ""}'
             fi
         done
     else
